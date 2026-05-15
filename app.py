@@ -16,8 +16,9 @@ model_path = os.path.join(base_dir, 'model.h5')
 
 try:
     if os.path.exists(model_path):
-        model = tf.keras.models.load_model(model_path)
-        print(f"✅ Real CNN Model Loaded from: {model_path}")
+        # compile=False laganay se version mismatch ke errors khatam ho jatay hain
+        model = tf.keras.models.load_model(model_path, compile=False)
+        print(f"✅ Real CNN Model Loaded Successfully from: {model_path}")
     else:
         model = None
         print(f"⚠️ model.h5 not found at {model_path}. Running in SMART TEST MODE.")
