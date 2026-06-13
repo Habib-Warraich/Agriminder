@@ -6,39 +6,30 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 from PIL import Image
 
-# Use direct keras imports for Keras 3 compatibility
+# Keras 3 compatibility logic
 import keras
 from keras.applications.mobilenet_v2 import preprocess_input
 
 app = Flask(__name__)
 CORS(app)
 
-# --- 1. MODEL LOADING (SAFE VERSION) ---
+# --- 1. MODEL LOADING (FIXED FOR KERAS 3) ---
 base_dir = os.path.dirname(os.path.abspath(__file__))
 model_path = os.path.join(base_dir, 'model.h5')
 
-def load_model_safely(path):
-    try:
-        # This is the "Magic Fix" for the BatchNormalization error
-        # It ignores the metadata that causes the crash
-        return tf.keras.models.load_model(path, compile=False)
-    except Exception as e:
-        print(f"Standard load failed, attempting legacy bypass...")
-        # If that fails, we use a more aggressive method
-        return tf.keras.layers.TFSMLayer(path, call_endpoint='serving_default')
-
 try:
     if os.path.exists(model_path):
-        model = load_model_safely(model_path)
-        print(f"✅ CNN Brain Loaded Successfully")
+        # H5 file ke liye 'compile=False' hi sab se best fix hai
+        model = tf.keras.models.load_model(model_path, compile=False)
+        print("✅ CNN Brain Loaded Successfully")
     else:
         model = None
-        print("⚠️ model.h5 not found")
+        print(f"⚠️ model.h5 not found at {model_path}")
 except Exception as e:
     model = None
-    print(f"❌ Final Load Error: {e}")
+    print(f"❌ Load Error: {e}")
 
-# ... (Keep your CLASSES list and routes exactly the same)
+# ... (Keep your CLASSES list and routes exactly the same as before)
 
 # IMPORTANT: This list MUST be in Alphabetical Order 
 # to match how Keras trained your 52 classes.
