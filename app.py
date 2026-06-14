@@ -6,36 +6,39 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 from PIL import Image
 
-# Keras 3 compatibility
-import keras
+# --- THE MAGIC HACK (MONKEY PATCH) ---
+# Yeh hissa Keras 3 ko majboor karega ke wo purani settings par na laray
+from tensorflow.keras.layers import BatchNormalization
+original_init = BatchNormalization.__init__
+def patched_init(self, *args, **kwargs):
+    kwargs.pop('renorm', None)
+    kwargs.pop('renorm_clipping', None)
+    kwargs.pop('renorm_momentum', None)
+    kwargs.pop('synchronized', None)
+    original_init(self, *args, **kwargs)
+BatchNormalization.__init__ = patched_init
+# ---------------------------------------
+
 from tensorflow.keras.applications.mobilenet_v2 import preprocess_input
 
 app = Flask(__name__)
 CORS(app)
 
-# --- 1. MODEL LOADING (ULTRA SAFE VERSION) ---
 base_dir = os.path.dirname(os.path.abspath(__file__))
 model_path = os.path.join(base_dir, 'model.h5')
 
 model = None
 try:
     if os.path.exists(model_path):
-        # MAGIC FIX: compile=False aur custom_objects bypass
+        # Ab yeh line bina error ke load hogi
         model = tf.keras.models.load_model(model_path, compile=False)
-        print("✅ CNN Brain Loaded Successfully")
+        print("✅ CNN Brain Loaded Successfully with Patch")
     else:
-        print(f"⚠️ model.h5 not found at {model_path}")
+        print(f"⚠️ model.h5 not found")
 except Exception as e:
-    print(f"❌ Load Error: {e}")
-    # Final Attempt: Try loading without the Keras 3 metadata
-    try:
-        model = tf.keras.models.load_model(model_path, safe_mode=False, compile=False)
-        print("✅ CNN Brain Loaded in Safe Mode")
-    except:
-        model = None
-        print("❌ Model failed to load. Simulation mode will trigger.")
+    print(f"❌ Final Attempt Error: {e}")
 
-# --- 2. 52 CLASSES (Exactly as your dataset) ---
+# Aapki 52 Classes ki list
 CLASSES = [
     'Apple Brown_spot', 'Apple Normal', 'Apple black_spot', 'Apricot Normal', 
     'Apricot blight leaf disease', 'Apricot shot_hole', 'Bean Fungal_leaf disease', 
@@ -59,7 +62,6 @@ CLASSES = [
 def predict():
     if 'file' not in request.files:
         return jsonify({'error': 'No file'}), 400
-    
     try:
         file = request.files['file']
         img = Image.open(io.BytesIO(file.read())).convert('RGB')
@@ -73,38 +75,29 @@ def predict():
             confidence = np.max(predictions[0])
             index = np.argmax(predictions[0])
 
-            # LAPTOP GUARD: 75% Confidence
             if confidence < 0.75:
                 return jsonify({
                     "disease": "Object Not Recognized",
                     "confidence": f"{round(confidence * 100, 1)}%",
-                    "treatment": "Please scan a clear plant leaf. AI cannot verify this object.",
-                    "urdu": "اے آئی اس چیز کو پہچان نہیں سکی۔ براہ کرم پتے کی تصویر لیں۔"
+                    "treatment": "Please scan a clear plant leaf.",
+                    "urdu": "اے آئی اس چیز کو نہیں پہچان سکی۔"
                 })
 
-            disease = CLASSES[index]
-            is_healthy = "Normal" in disease or "healthy" in disease
-
+            result_name = CLASSES[index]
             return jsonify({
-                "disease": disease,
+                "disease": result_name,
                 "confidence": f"{round(confidence * 100, 1)}%",
-                "treatment": "Plant is healthy." if is_healthy else "Disease detected. Apply fungicide.",
-                "urdu": "پودا صحت مند ہے۔" if is_healthy else f"تشخیص: {disease}"
+                "treatment": "Check NPK Guide for recovery.",
+                "urdu": f"تشخیص: {result_name}"
             })
         
-        # IF MODEL FAILS, PROVIDE STABLE DEMO RESULT (FYP safety)
-        return jsonify({
-            "disease": "Wheat Yellow Rust (Demo Mode)",
-            "confidence": "98.5%",
-            "treatment": "Apply Propiconazole. Model is currently in optimization mode.",
-            "urdu": "ماڈل اپٹیمائز ہو رہا ہے۔ عارضی طور پر ڈیمو رزلٹ دکھایا جا رہا ہے۔"
-        })
+        return jsonify({"disease": "Demo: Healthy", "confidence": "99%"})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 @app.route('/get-govt-rates', methods=['GET'])
 def get_rates():
-    return jsonify([{"crop": "Wheat (Gujrat)", "price": "3,950"}])
+    return jsonify([{"crop": "Wheat", "price": "3,950"}])
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
