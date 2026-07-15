@@ -1,35 +1,52 @@
 import os
 import io
+import time
 import numpy as np
 import tensorflow as tf
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from PIL import Image
 import google.generativeai as genai
+
+# --- 1. THE ONLY PROPER FIX FOR 'InputLayer' ERROR ---
+# Yeh code Keras 3 ko bataye ga ke 'batch_shape' aur 'optional' ko ignore karay
+from tensorflow.keras.layers import InputLayer, BatchNormalization
+
+class PatchedInputLayer(InputLayer):
+    def __init__(self, *args, **kwargs):
+        kwargs.pop('batch_shape', None)
+        kwargs.pop('optional', None)
+        super().__init__(*args, **kwargs)
+
+# Original class ko replace kar do loading se pehle
+tf.keras.layers.InputLayer = PatchedInputLayer
+# -----------------------------------------------------
+
 from tensorflow.keras.applications.mobilenet_v2 import preprocess_input
 
 app = Flask(__name__)
 CORS(app)
 
-# Gemini Config
+# Gemini AI Key
 genai.configure(api_key="AQ.Ab8RN6JuGn3X0JCtey2b45h0KA3DHKFTUUskqLfo6fq5XU4EBA")
-vision_model = genai.GenerativeModel('gemini-1.5-flash')
+ai_engine = genai.GenerativeModel('gemini-1.5-flash')
 
-# Model Loading
+# Model Path Logic
 base_dir = os.path.dirname(os.path.abspath(__file__))
 model_path = os.path.join(base_dir, 'model.h5')
 
 model = None
 try:
     if os.path.exists(model_path):
-        # Keras 2 mein ye line bina kisi error ke model load kar legi
+        # compile=False and trust the patch above
         model = tf.keras.models.load_model(model_path, compile=False)
-        print("✅ CNN Brain Loaded Successfully (Keras 2 Legacy Mode)")
+        print("✅ CNN Brain Loaded Successfully with FYP-Patch")
     else:
-        print("❌ model.h5 not found")
+        print("❌ Error: model.h5 not found")
 except Exception as e:
     print(f"❌ Load Error: {e}")
 
+# Classes (Wahi 52 jo aapne train ki hain)
 CLASSES = ['Apple Brown_spot', 'Apple Normal', 'Apple black_spot', 'Apricot Normal', 
     'Apricot blight leaf disease', 'Apricot shot_hole', 'Bean Fungal_leaf disease', 
     'Bean Normal leaf', 'Bean bean rust image', 'Bean shot_hole', 'Cherry Leaf Scorch', 
@@ -47,46 +64,45 @@ CLASSES = ['Apple Brown_spot', 'Apple Normal', 'Apple black_spot', 'Apricot Norm
     'tomato_early_blight', 'tomato_healthy_leaf', 'tomato_late_blight', 
     'tomato_leaf_curl', 'tomato_leaf_miner', 'tomato_leaf_mold', 'tomato_septoria_leaf']
 
-def get_ai_analysis(img_bytes):
+def get_ai_advice(name):
     try:
-        img = Image.open(io.BytesIO(img_bytes))
-        prompt = "Analyze this image. If it is a plant leaf, identify it and any disease. Tell Cause and Cure in detail for a Pakistani farmer in Gujrat. If it is NOT a plant leaf, reply ONLY with 'INVALID'."
-        response = vision_model.generate_content([prompt, img])
-        return response.text
-    except: return "AI analysis error."
+        p = f"Analyze plant disease: {name}. Tell Cause and Cure in 3 lines for a farmer in Gujrat, Pakistan. Add 1 line Urdu."
+        return ai_engine.generate_content(p).text
+    except: return "Consult expert."
 
 @app.route('/')
-def home(): return "Server Online"
+def index(): return "Server Live"
 
 @app.route('/predict', methods=['POST'])
 def predict():
     if 'file' not in request.files: return jsonify({'error': 'No file'}), 400
     file = request.files['file']
-    img_bytes = file.read()
-    
-    ai_detail = get_ai_analysis(img_bytes)
-    if "INVALID" in ai_detail:
-        return jsonify({"disease": "Object Not Recognized", "status": "invalid", "urdu": "اے آئی اسے پودا تسلیم نہیں کر رہی۔"})
-
     try:
-        img = Image.open(io.BytesIO(img_bytes)).convert('RGB').resize((224, 224))
+        img = Image.open(io.BytesIO(file.read())).convert('RGB')
+        img = img.resize((224, 224))
         img_array = np.array(img).astype('float32')
         img_array = preprocess_input(img_array)
         img_array = np.expand_dims(img_array, axis=0)
 
         if model:
-            preds = model.predict(img_array)
-            confidence = f"{round(np.max(preds[0]) * 100, 1)}%"
-            disease = CLASSES[np.argmax(preds[0])]
+            predictions = model.predict(img_array)
+            confidence = np.max(predictions[0])
+            index = np.argmax(predictions[0])
+
+            # Laptop Screen Guard (If confidence is low)
+            if confidence < 0.75:
+                return jsonify({"disease": "Object Not Recognized", "status": "invalid", "urdu": "پودا نہیں ملا۔"})
+
+            disease = CLASSES[index]
+            details = get_ai_advice(disease)
             return jsonify({
                 "disease": disease,
-                "confidence": confidence,
-                "details": ai_detail,
-                "status": "danger" if "Normal" not in disease else "healthy"
+                "confidence": f"{round(confidence * 100, 1)}%",
+                "details": details,
+                "status": "healthy" if "Normal" in disease else "danger"
             })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-    return jsonify({"error": "Model Error"}), 500
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 10000))
