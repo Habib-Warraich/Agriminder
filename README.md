@@ -1,2 +1,0 @@
-# Agriminder
-Agriculture assistant
