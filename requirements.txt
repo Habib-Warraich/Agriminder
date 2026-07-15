@@ -1,37 +1,9 @@
-# ============================================================
-# Tomato & Corn Disease Detection - Requirements
-# ============================================================
-# Install with: pip install -r requirements.txt
-# Recommended Python version: 3.9 - 3.11
-
-# Core Deep Learning
-tensorflow-cpu  # Using CPU version for lighter deployment
-keras
-
-# App Server & Deployment
 flask
+flask-cors
+tensorflow-cpu==2.15.0
+keras==2.15.0
+pillow
+google-generativeai
+requests
+beautifulsoup4
 gunicorn
-# Data Science & Numerical Computing
-numpy
-pandas
-scikit-learn
-
-# Image Processing
-Pillow
-opencv-python
-
-# Visualization
-matplotlib
-seaborn
-
-# Jupyter Notebook
-jupyter
-notebook
-ipykernel
-ipywidgets
-
-# Utilities
-tqdm
-
-# App Server
-flask
