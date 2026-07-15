@@ -10,32 +10,25 @@ import google.generativeai as genai
 app = Flask(__name__)
 CORS(app)
 
-# --- 1. GEMINI AI CONFIG ---
+# --- 1. GEMINI AI CONFIG (Aapki Key) ---
 genai.configure(api_key="AQ.Ab8RN6JuGn3X0JCtey2b45h0KA3DHKFTUUskqLfo6fq5XU4EBA")
 vision_model = genai.GenerativeModel('gemini-1.5-flash')
 
-# --- 2. TFLITE MODEL LOADING (Bypasses Keras Errors) ---
-# Hum model.h5 ki bajaye disease_model.tflite use karenge jo aapke folder mein hai
+# --- 2. TFLITE MODEL LOADING ---
 base_dir = os.path.dirname(os.path.abspath(__file__))
 tflite_path = os.path.join(base_dir, 'disease_model.tflite')
 
 interpreter = None
-input_details = None
-output_details = None
-
 try:
     if os.path.exists(tflite_path):
         interpreter = tf.lite.Interpreter(model_path=tflite_path)
         interpreter.allocate_tensors()
         input_details = interpreter.get_input_details()
         output_details = interpreter.get_output_details()
-        print("✅ CNN Brain (TFLite) Loaded Successfully")
-    else:
-        print(f"❌ Error: {tflite_path} not found")
+        print("✅ CNN Brain (TFLite) Ready")
 except Exception as e:
-    print(f"❌ TFLite Load Error: {e}")
+    print(f"❌ TFLite Error: {e}")
 
-# Labels (Ensure this matches your 52 classes order)
 CLASSES = ['Apple Brown_spot', 'Apple Normal', 'Apple black_spot', 'Apricot Normal', 
     'Apricot blight leaf disease', 'Apricot shot_hole', 'Bean Fungal_leaf disease', 
     'Bean Normal leaf', 'Bean bean rust image', 'Bean shot_hole', 'Cherry Leaf Scorch', 
@@ -54,16 +47,22 @@ CLASSES = ['Apple Brown_spot', 'Apple Normal', 'Apple black_spot', 'Apricot Norm
     'tomato_leaf_curl', 'tomato_leaf_miner', 'tomato_leaf_mold', 'tomato_septoria_leaf']
 
 def get_ai_analysis(img_bytes):
+    """Is function ko maine behtar kiya hai taake laptop ko pehchan sakay"""
     try:
         img = Image.open(io.BytesIO(img_bytes))
-        prompt = "Analyze this image. If it is a plant leaf, identify it and any disease. Tell Cause and Cure in detail for a Pakistani farmer in Gujrat. If it is NOT a plant leaf, reply ONLY with 'INVALID'."
+        # Sakht Prompt taake AI ghalti na kare
+        prompt = """
+        Analyze this image:
+        1. Is this a real plant leaf? Answer 'YES' or 'NO'.
+        2. If NO, stop here and say 'INVALID'.
+        3. If YES, identify the plant and disease. Explain the Cause (water, NPK, weather) and the Cure (exact medicine).
+        4. Provide an Urdu summary.
+        """
         response = vision_model.generate_content([prompt, img])
         return response.text
-    except: return "AI analysis error. Please check your internet."
-
-@app.route('/')
-def home():
-    return "AgriMinder AI Cloud: ONLINE"
+    except Exception as e:
+        print(f"Gemini Error: {e}")
+        return "ERROR"
 
 @app.route('/predict', methods=['POST'])
 def predict():
@@ -71,16 +70,22 @@ def predict():
     file = request.files['file']
     img_bytes = file.read()
     
-    # 1. Universal AI Check
+    # --- PHASE 1: AI VALIDATION (Peharay-dar) ---
     ai_detail = get_ai_analysis(img_bytes)
-    if "INVALID" in ai_detail:
-        return jsonify({"disease": "Object Not Recognized", "status": "invalid", "urdu": "اے آئی اسے پودا تسلیم نہیں کر رہی۔"})
+    
+    # Agar AI ko patti nahi mili ya koi error aaya
+    if "INVALID" in ai_detail.upper() or ai_detail == "ERROR":
+        return jsonify({
+            "disease": "Object Not Recognized",
+            "status": "invalid",
+            "details": "This image does not contain a plant leaf. Please scan a leaf under natural light.",
+            "urdu": "اے آئی کو اس تصویر میں کوئی پودا یا پتا نہیں ملا۔ براہ کرم پتے کی صاف تصویر لیں۔"
+        })
 
-    # 2. CNN TFLite Inference
+    # --- PHASE 2: CNN INFERENCE (Sirf patti honay ki surat mein) ---
     try:
         img = Image.open(io.BytesIO(img_bytes)).convert('RGB').resize((224, 224))
         img_array = np.array(img, dtype=np.float32)
-        # MobileNetV2 Normalization (-1 to 1)
         img_array = (img_array / 127.5) - 1.0
         img_array = np.expand_dims(img_array, axis=0)
 
@@ -93,6 +98,7 @@ def predict():
             index = np.argmax(preds[0])
             disease = CLASSES[index]
 
+            # Final response combining CNN Accuracy + AI Details
             return jsonify({
                 "disease": disease,
                 "confidence": f"{round(confidence_val * 100, 1)}%",
@@ -100,9 +106,7 @@ def predict():
                 "status": "healthy" if "Normal" in disease or "healthy" in disease else "danger"
             })
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-    return jsonify({"error": "Prediction Logic Error"}), 500
+        return jsonify({"error": "CNN Processing failed"}), 500
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 10000))
