@@ -1,66 +1,35 @@
 import os
 import io
-import time
 import numpy as np
 import tensorflow as tf
-from flask import Flask, request, jsonify, send_from_directory
+from flask import Flask, request, jsonify
 from flask_cors import CORS
 from PIL import Image
 import google.generativeai as genai
-
-# --- 1. THE ULTIMATE "FYP SAVER" PATCH ---
-# Yeh hissa Keras 3 ko force karega ke woh purani settings ko ignore kare
-from tensorflow.keras.layers import BatchNormalization, InputLayer
-
-def patched_input_init(self, *args, **kwargs):
-    # Keras 3 mein 'batch_shape' ko 'shape' chahiye hota hai
-    if 'batch_shape' in kwargs:
-        kwargs['shape'] = kwargs.pop('batch_shape')
-    kwargs.pop('optional', None) # 'optional' argument ko nikaal do
-    original_input_init(self, *args, **kwargs)
-
-def patched_bn_init(self, *args, **kwargs):
-    # Faltu parameters jo crash kartay hain unhein nikaal do
-    kwargs.pop('renorm', None)
-    kwargs.pop('renorm_clipping', None)
-    kwargs.pop('renorm_momentum', None)
-    kwargs.pop('synchronized', None)
-    original_bn_init(self, *args, **kwargs)
-
-# Original functions ko save karo
-original_input_init = InputLayer.__init__
-original_bn_init = BatchNormalization.__init__
-
-# Patch apply karo
-InputLayer.__init__ = patched_input_init
-BatchNormalization.__init__ = patched_bn_init
-# ---------------------------------------
-
 from tensorflow.keras.applications.mobilenet_v2 import preprocess_input
 
 app = Flask(__name__)
 CORS(app)
 
-# --- 2. GEMINI AI CONFIG ---
+# Gemini Config
 genai.configure(api_key="AQ.Ab8RN6JuGn3X0JCtey2b45h0KA3DHKFTUUskqLfo6fq5XU4EBA")
 vision_model = genai.GenerativeModel('gemini-1.5-flash')
 
-# --- 3. MODEL LOADING ---
+# Model Loading
 base_dir = os.path.dirname(os.path.abspath(__file__))
 model_path = os.path.join(base_dir, 'model.h5')
 
 model = None
 try:
     if os.path.exists(model_path):
-        # compile=False zaroori hai version mismatch se bachnay ke liye
+        # Keras 2 mein ye line bina kisi error ke model load kar legi
         model = tf.keras.models.load_model(model_path, compile=False)
-        print("✅ CNN Brain Loaded Successfully with InputLayer Patch")
+        print("✅ CNN Brain Loaded Successfully (Keras 2 Legacy Mode)")
     else:
-        print(f"⚠️ model.h5 not found at {model_path}")
+        print("❌ model.h5 not found")
 except Exception as e:
-    print(f"❌ Error during model load: {e}")
+    print(f"❌ Load Error: {e}")
 
-# ... (CLASSES list same as before)
 CLASSES = ['Apple Brown_spot', 'Apple Normal', 'Apple black_spot', 'Apricot Normal', 
     'Apricot blight leaf disease', 'Apricot shot_hole', 'Bean Fungal_leaf disease', 
     'Bean Normal leaf', 'Bean bean rust image', 'Bean shot_hole', 'Cherry Leaf Scorch', 
@@ -84,11 +53,10 @@ def get_ai_analysis(img_bytes):
         prompt = "Analyze this image. If it is a plant leaf, identify it and any disease. Tell Cause and Cure in detail for a Pakistani farmer in Gujrat. If it is NOT a plant leaf, reply ONLY with 'INVALID'."
         response = vision_model.generate_content([prompt, img])
         return response.text
-    except: return "AI analysis error. Check internet."
+    except: return "AI analysis error."
 
 @app.route('/')
-def home():
-    return "<h1>AgriMinder Server: ONLINE</h1>"
+def home(): return "Server Online"
 
 @app.route('/predict', methods=['POST'])
 def predict():
@@ -96,15 +64,14 @@ def predict():
     file = request.files['file']
     img_bytes = file.read()
     
-    # 1. Gemini Check
     ai_detail = get_ai_analysis(img_bytes)
     if "INVALID" in ai_detail:
         return jsonify({"disease": "Object Not Recognized", "status": "invalid", "urdu": "اے آئی اسے پودا تسلیم نہیں کر رہی۔"})
 
-    # 2. CNN Inference
     try:
         img = Image.open(io.BytesIO(img_bytes)).convert('RGB').resize((224, 224))
-        img_array = preprocess_input(np.array(img).astype('float32'))
+        img_array = np.array(img).astype('float32')
+        img_array = preprocess_input(img_array)
         img_array = np.expand_dims(img_array, axis=0)
 
         if model:
@@ -119,7 +86,6 @@ def predict():
             })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-
     return jsonify({"error": "Model Error"}), 500
 
 if __name__ == '__main__':
