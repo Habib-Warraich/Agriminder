@@ -1,7 +1,10 @@
 flask
 flask-cors
-tensorflow==2.16.1
-keras==3.3.3
+tensorflow-cpu==2.15.0
+keras==2.15.0
 google-generativeai
 pillow
+requests
+beautifulsoup4
 gunicorn
+numpy<2.0.0
