@@ -1,6 +1,6 @@
 flask
 flask-cors
-tensorflow-cpu
-pillow
+tensorflow-cpu>=2.15.0
+Pillow>=9.0.0
 google-generativeai
 gunicorn
