@@ -1,59 +1,70 @@
 import os
 import io
 import numpy as np
-import tensorflow as tf
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from PIL import Image
 import google.generativeai as genai
 
-# TENSORFLOW 2.16+ AUR KERAS 3 FIX
-import keras
-from keras.applications.mobilenet_v2 import preprocess_input
-
-# Environment Fixes
-os.environ["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"] = "python"
+# TFLite Runtime use kar rahe hain (Weight: 1MB vs 400MB)
+try:
+    import tflite_runtime.interpreter as tflite
+except ImportOrModuleNotFoundError:
+    # Local windows par testing ke liye
+    import tensorflow.lite as tflite
 
 app = Flask(__name__)
 CORS(app)
 
 # --- 1. GEMINI AI CONFIG ---
-# Aapki API Key
 genai.configure(api_key="AQ.Ab8RN6JuGn3X0JCtey2b45h0KA3DHKFTUUskqLfo6fq5XU4EBA")
 ai_engine = genai.GenerativeModel('gemini-1.5-flash')
 
-# --- 2. CNN MODEL LOADING (Absolute Path Fix) ---
+# --- 2. TFLITE MODEL LOADING ---
 base_dir = os.path.dirname(os.path.abspath(__file__))
-model_path = os.path.join(base_dir, 'model.h5')
+model_path = os.path.join(base_dir, 'model.tflite')
 
-model = None
-try:
-    if os.path.exists(model_path):
-        model = tf.keras.models.load_model(model_path, compile=False)
-        print("✅ CNN Brain Loaded Successfully")
-    else:
-        print(f"❌ Error: model.h5 not found at {model_path}")
-except Exception as e:
-    print(f"❌ Load Error: {e}")
+interpreter = None
+input_details = None
+output_details = None
 
-CLASSES = ['Apple Brown_spot', 'Apple Normal', 'Apple black_spot', 'Apricot Normal', 'Apricot blight leaf disease', 'Apricot shot_hole', 'Bean Fungal_leaf disease', 'Bean Normal leaf', 'Bean bean rust image', 'Bean shot_hole', 'Cherry Leaf Scorch', 'Cherry Normal leaf', 'Cherry brown_spot', 'Cherry purple leaf spot', 'Cherry_shot hole disease', 'Corn Fungal leaf', 'Corn Normal leaf', 'Corn gray leaf spot', 'Corn holcus_ leaf spot', 'Fig Blight_leaf disease', 'Fig Brown spot', 'Fig normal leaf', 'Fig_rust leaf', 'Grape Anthracnose leaf', 'Grape Brown spot leaf', 'Grape Downy mildew leaf', 'Grape Mites_leaf disease', 'Grape Normal_leaf', 'Grape Powdery_mildew leaf', 'Grape shot hole leaf disease', 'Lokat Normal leaf', 'Pear Black spot _ leaf disease', 'Pear Normal _leaf', 'Pear fire blight', 'Walnut Anthracnose_leaf disease', 'Walnut Blotch_leaf disease', 'Walnut Normal_leaf', 'Walnut Shot_hole', 'Walnut leaf gall mite', 'lokat Leaf_spot', 'persimmons Brown_spot', 'tomato Fusarium Wilt', 'tomato spider mites', 'tomato verticillium wilt', 'tomato_bacterial_spot', 'tomato_early_blight', 'tomato_healthy_leaf', 'tomato_late_blight', 'tomato_leaf_curl', 'tomato_leaf_miner', 'tomato_leaf_mold', 'tomato_septoria_leaf']
+if os.path.exists(model_path):
+    interpreter = tflite.Interpreter(model_path=model_path)
+    interpreter.allocate_tensors()
+    input_details = interpreter.get_input_details()
+    output_details = interpreter.get_output_details()
+    print("✅ TFLite Model Loaded Successfully")
+else:
+    print(f"❌ Error: {model_path} not found")
+
+CLASSES = ['Apple Brown_spot', 'Apple Normal', 'Apple black_spot', 'Apricot Normal', 
+    'Apricot blight leaf disease', 'Apricot shot_hole', 'Bean Fungal_leaf disease', 
+    'Bean Normal leaf', 'Bean bean rust image', 'Bean shot_hole', 'Cherry Leaf Scorch', 
+    'Cherry Normal leaf', 'Cherry brown_spot', 'Cherry purple leaf spot', 
+    'Cherry_shot hole disease', 'Corn Fungal leaf', 'Corn Normal leaf', 
+    'Corn gray leaf spot', 'Corn holcus_ leaf spot', 'Fig Blight_leaf disease', 
+    'Fig Brown spot', 'Fig normal leaf', 'Fig_rust leaf', 'Grape Anthracnose leaf', 
+    'Grape Brown spot leaf', 'Grape Downy mildew leaf', 'Grape Mites_leaf disease', 
+    'Grape Normal_leaf', 'Grape Powdery_mildew leaf', 'Grape shot hole leaf disease', 
+    'Lokat Normal leaf', 'Pear Black spot _ leaf disease', 'Pear Normal _leaf', 
+    'Pear fire blight', 'Walnut Anthracnose_leaf disease', 'Walnut Blotch_leaf disease', 
+    'Walnut Normal_leaf', 'Walnut Shot_hole', 'Walnut leaf gall mite', 
+    'lokat Leaf_spot', 'persimmons Brown_spot', 'tomato Fusarium Wilt', 
+    'tomato spider mites', 'tomato verticillium wilt', 'tomato_bacterial_spot', 
+    'tomato_early_blight', 'tomato_healthy_leaf', 'tomato_late_blight', 
+    'tomato_leaf_curl', 'tomato_leaf_miner', 'tomato_leaf_mold', 'tomato_septoria_leaf']
 
 def get_ai_analysis(img_bytes, cnn_result):
     try:
         img = Image.open(io.BytesIO(img_bytes))
-        prompt = f"""
-        Analyze this plant leaf. CNN says: {cnn_result}.
-        1. If NOT a plant (laptop/person), reply ONLY 'INVALID'.
-        2. If a leaf, identify disease, Cause (water/NPK/humidity) and Cure.
-        3. Short summary in Urdu.
-        """
+        prompt = f"Analyze this leaf. CNN says: {cnn_result}. If NOT a plant, reply 'INVALID'. Otherwise tell Cause and Cure for a Pakistani farmer in Gujrat. Add Urdu summary."
         response = ai_engine.generate_content([prompt, img])
         return response.text
-    except: return "Analysis currently unavailable."
+    except: return "AI advice busy. Consult local expert."
 
 @app.route('/')
 def home():
-    return "AgriMinder Backend is Running!"
+    return "AgriMinder TFLite Server is LIVE!"
 
 @app.route('/predict', methods=['POST'])
 def predict():
@@ -63,28 +74,38 @@ def predict():
         file = request.files['file']
         img_bytes = file.read()
         
-        # 1. Run CNN
+        # Pre-processing for TFLite
         img = Image.open(io.BytesIO(img_bytes)).convert('RGB').resize((224, 224))
-        img_array = preprocess_input(np.array(img).astype('float32'))
+        img_array = np.array(img).astype('float32')
+        # Normalization (-1 to 1)
+        img_array = (img_array / 127.5) - 1.0
         img_array = np.expand_dims(img_array, axis=0)
 
-        if model:
-            preds = model.predict(img_array)
-            confidence = np.max(preds[0])
-            cnn_disease = CLASSES[np.argmax(preds[0])]
+        if interpreter:
+            # TFLite Inference
+            interpreter.set_tensor(input_details[0]['index'], img_array)
+            interpreter.invoke()
+            predictions = interpreter.get_tensor(output_details[0]['index'])
+            
+            confidence = np.max(predictions[0])
+            idx = np.argmax(predictions[0])
+            cnn_disease = CLASSES[idx]
 
-            # 2. AI Analysis
+            # Gemini AI Analysis
             ai_details = get_ai_analysis(img_bytes, cnn_disease)
 
-            if "INVALID" in ai_details.upper() and confidence < 0.50:
-                return jsonify({"disease": "Object Not Recognized", "status": "invalid", "urdu": "پودا نہیں ملا۔"})
+            # Rejection Logic
+            if confidence < 0.60 and "INVALID" in ai_details.upper():
+                return jsonify({"disease": "Object Not Recognized", "status": "invalid"})
 
             return jsonify({
                 "disease": cnn_disease,
                 "confidence": f"{round(confidence * 100, 1)}%",
-                "details": ai_advice if (ai_advice := ai_details) else "Processing...",
+                "details": ai_details,
                 "status": "healthy" if "Normal" in cnn_disease else "danger"
             })
+        
+        return jsonify({"error": "Model failed"}), 500
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
