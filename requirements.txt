@@ -3,4 +3,6 @@ flask-cors
 tensorflow-cpu==2.15.0
 google-generativeai
 pillow
+requests
+beautifulsoup4
 gunicorn
