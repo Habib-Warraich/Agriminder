@@ -7,7 +7,6 @@ from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 from PIL import Image
 import google.generativeai as genai
-from tensorflow.keras.applications.mobilenet_v2 import preprocess_input
 
 # Environment Fix for Protobuf
 os.environ["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"] = "python"
