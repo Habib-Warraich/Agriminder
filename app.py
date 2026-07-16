@@ -22,7 +22,7 @@ ai_engine = genai.GenerativeModel('gemini-1.5-flash')
 
 # --- 2. TFLITE MODEL LOADING (Absolute Path) ---
 base_dir = os.path.dirname(os.path.abspath(__file__))
-model_path = os.path.join(base_dir, 'model.tflite')
+model_path = os.path.join(base_dir, 'disease_model.tflite')
 
 interpreter = None
 input_details = None
