@@ -1,13 +1,15 @@
 import os
 import io
-import time
 import numpy as np
 import tensorflow as tf
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from PIL import Image
 import google.generativeai as genai
-from tensorflow.keras.applications.mobilenet_v2 import preprocess_input
+
+# TENSORFLOW 2.16+ AUR KERAS 3 FIX
+import keras
+from keras.applications.mobilenet_v2 import preprocess_input
 
 # Environment Fixes
 os.environ["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"] = "python"
