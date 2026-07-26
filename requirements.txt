@@ -1,6 +1,0 @@
-flask
-flask-cors
-tflite-runtime
-google-generativeai
-pillow
-gunicorn
